@@ -26,6 +26,8 @@
   },
   "homepage": "https://github.com/Flakebi/tree-sitter-tablegen#readme",
   "devDependencies": {
+    "eslint": "^8.36.0",
+    "eslint-config-google": "^0.14.0",
     "nan": "^2.15.0",
     "prettier": "^2.5.1",
     "tree-sitter-cli": "^0.20.1"

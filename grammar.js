@@ -1,37 +1,51 @@
+/**
+ * @file LLVM TableGen grammar for tree-sitter
+ * @author Amaan Qureshi <amaanq12@gmail.com>
+ * @license MIT
+ */
+
+/* eslint-disable arrow-parens */
+/* eslint-disable camelcase */
+/* eslint-disable-next-line spaced-comment */
+/// <reference types="tree-sitter-cli/dsl" />
+// @ts-check
+
 module.exports = grammar({
   name: 'tablegen',
-
-  conflicts: $ => [
-    [$.value], [$._value_concat], [$._simple_value],
-  ],
 
   externals: $ => [
     $.multiline_comment,
   ],
 
   extras: $ => [
-    /\s+/,
     $.comment,
     $.multiline_comment,
-    $.preprocessor,
+    $.preprocessor_directive,
+    /\s/,
+  ],
+
+  supertypes: $ => [
+    $.simple_value,
+    $.statement,
+    $.type,
   ],
 
   word: $ => $.identifier,
 
   rules: {
-    file: $ => repeat($.statement),
+    tablegen_file: $ => repeat(choice(
+      $.statement,
+      $.preprocessor_directive,
+    )),
 
-    comment: $ => /\/\/[^\n\r]*/,
+    include_directive: $ => seq('include', $.string),
 
-    number: $ => /[+-]?\d+|0x[\da-fA-F]+|0b[01]+/,
-    identifier: $ => /[a-zA-Z_0-9]*[a-zA-Z_][a-zA-Z_0-9]*/,
-    string_string: $ => /"(\\\\|\\'|\\"|\\t|\\n|[^\\"])*"/,
-    code_string: $ => /\[\{([^}]|\}+[^}\]])*\}\]/,
-    var: $ => /\$[a-zA-Z_][a-zA-Z_0-9]*/,
-
-    include: $ => seq('include', $.string_string),
-    preprocessor: $ => token(choice(
-      seq(choice('#define', '#ifdef', '#ifndef'), /\s+/, field('macro_name', /[a-zA-Z_][a-zA-Z_0-9]*/)),
+    preprocessor_directive: _ => token(choice(
+      seq(
+        choice('#define', '#ifdef', '#ifndef'),
+        /\s+/,
+        field('macro_name', /[a-zA-Z_][a-zA-Z_0-9]*/),
+      ),
       '#else',
       '#endif',
     )),
@@ -47,10 +61,10 @@ module.exports = grammar({
       $.if,
       $.let,
       $.multiclass,
-      $.include,
+      $.include_directive,
     ),
 
-    statement_or_block: $ => choice(
+    block: $ => choice(
       $.statement,
       seq('{', repeat($.statement), '}'),
     ),
@@ -59,24 +73,39 @@ module.exports = grammar({
       'class',
       field('name', $.identifier),
       optional($.template_args),
-      optional($.parent_class_list),
+      // optional($.parent_class_list),
       field('body', $.record_body),
+    ),
+
+    template_args: $ => seq('<', optionalCommaSep($.template_arg), '>'),
+
+    template_arg: $ => seq(
+      $.type,
+      $.identifier,
+      optional(seq('=', $.value)),
+    ),
+
+    record_body: $ => seq(
+      optional($.parent_class_list),
+      $.body,
     ),
 
     parent_class_list: $ => seq(
       ':',
-      commaSep1(seq($.identifier, optional(seq('<', commaSep(field('argument', $.value)), '>')))),
+      commaSep1(seq(
+        $.identifier,
+        optional(seq('<', optionalCommaSep($.value), '>')),
+      )),
     ),
 
-    template_args: $ => seq('<', commaSep(field('argument', $.template_arg)), '>'),
-
-    template_arg: $ => seq($.type, $.identifier, optional(seq('=', $.value))),
-
-    record_body: $ => choice(';', seq('{', repeat($.body_item), '}')),
+    body: $ => choice(
+      ';',
+      seq('{', repeat($.body_item), '}'),
+    ),
 
     body_item: $ => choice(
       $.instruction,
-      $.let_inst,
+      $.let_instruction,
       $.def_var,
       $.assert,
     ),
@@ -89,10 +118,10 @@ module.exports = grammar({
       ';',
     ),
 
-    let_inst: $ => seq(
+    let_instruction: $ => seq(
       'let',
       $.identifier,
-      optional(seq('{', commaSep($.value), '}')),
+      optional(seq('{', $.range_list, '}')),
       '=',
       $.value,
       ';',
@@ -108,21 +137,22 @@ module.exports = grammar({
 
     def: $ => seq(
       'def',
-      optional($.value),
-      optional($.parent_class_list),
-      field('body', $.record_body),
+      field('name', optional($.value)),
+      $.record_body,
     ),
 
     let: $ => seq(
       'let',
-      commaSep1($.let_item),
+      $.let_list,
       'in',
       choice($.statement, seq('{', repeat($.statement), '}')),
     ),
 
+    let_list: $ => optionalCommaSep1($.let_item),
+
     let_item: $ => seq(
       $.identifier,
-      optional(seq('<', commaSep($.value), '>')),
+      optional(seq('<', $.range_list, '>')),
       '=',
       $.value,
     ),
@@ -132,10 +162,13 @@ module.exports = grammar({
       $.identifier,
       optional($.template_args),
       optional($.parent_class_list),
-      field('body', $.multiclass_body),
+      $.multiclass_body,
     ),
 
-    multiclass_body: $ => choice(';', seq('{', repeat($.multiclass_statement), '}')),
+    multiclass_body: $ => choice(
+      ';',
+      seq('{', repeat1($.multiclass_statement), '}'),
+    ),
 
     multiclass_statement: $ => choice(
       $.assert,
@@ -149,8 +182,8 @@ module.exports = grammar({
 
     defm: $ => seq(
       'defm',
-      optional($.value),
-      $.parent_class_list,
+      field('name', optional($.value)),
+      optional($.parent_class_list),
       ';',
     ),
 
@@ -164,104 +197,126 @@ module.exports = grammar({
       '}',
     ),
 
-    defvar: $ => seq(
-      'defvar',
-      $.identifier,
-      '=',
-      $.value,
-      ';',
-    ),
+    defvar: $ => seq('defvar', $.identifier, '=', $.value, ';'),
 
-    foreach: $ => seq(
-      'foreach',
+    foreach: $ => seq('foreach', $.foreach_iterator, 'in', $.block),
+
+    foreach_iterator: $ => seq(
       $.identifier,
       '=',
-      $.value,
-      'in',
-      $.statement_or_block,
+      choice(
+        seq('{', $.range_list, '}'),
+        $.range_piece,
+        $.value,
+      ),
     ),
 
     if: $ => prec.left(seq(
       'if',
       $.value,
       'then',
-      $.statement_or_block,
-      optional(seq(
-        'else',
-        $.statement_or_block,
-      ))
+      $.block,
+      optional(seq('else', $.block)),
     )),
 
-    assert: $ => seq(
-      'assert',
-      $.value,
-      ',',
-      $.value,
-      ';',
-    ),
+    assert: $ => seq('assert', $.value, ',', $.value, ';'),
 
     type: $ => choice(
-      'bit',
-      'int',
-      'string',
-      'dag',
-      seq('bits', '<', $.number, '>'),
-      seq('list', '<', $.type, '>'),
-      $.identifier, // class
+      $.primitive_type,
+      $.bits_type,
+      $.list_type,
+      alias($.identifier, $.class_identifier),
     ),
 
-    value: $ => choice(
-      seq(
-        $._simple_value,
-        repeat($.value_suffix),
-      ),
-      $._value_concat,
+    primitive_type: _ => choice('bit', 'int', 'string', 'dag'),
+
+    bits_type: $ => seq('bits', '<', $.integer, '>'),
+
+    list_type: $ => seq('list', '<', $.type, '>'),
+
+    value: $ => prec.left(choice(
+      seq($.simple_value, repeat($.value_suffix)),
+      $.paste_value,
+    )),
+
+    paste_value: $ => prec.right(seq($.value, '#', optional($.value))),
+
+    value_suffix: $ => choice(
+      seq('{', $.range_list, '}'),
+      seq('[', $.range_list, ']'),
+      seq('.', $.identifier),
     ),
 
-    _value_concat: $ => seq(
+    value_list: $ => optionalCommaSep1($.value),
+
+    range_list: $ => commaSep1($.range_piece),
+
+    range_piece: $ => prec(1, choice(
+      seq($.value, '...', $.value),
+      seq($.value, '-', $.value),
       $.value,
-      repeat1(prec.left(seq('#', optional($.value)))),
-    ),
+    )),
 
-    _simple_value: $ => choice(
-      $.number,
+    simple_value: $ => prec.right(choice(
+      $.integer,
+      $.string,
+      $.concatenated_string,
+      $.code,
+      $.boolean,
+      alias('?', $.uninitialized_value),
+      $.sequence,
+      $.list_initializer,
+      $.dag_initializer,
       $.identifier,
-      $.string_string,
-      $._repeated_string,
-      $.code_string,
-      'true',
-      'false',
-      '?',
-      seq('{', commaSep($.value), optional(','), '}'),
-      seq('[', commaSep($.value), optional(','), ']', optional(seq('<', $.type, '>'))),
-      seq('(', $.dag_arg, commaSep($.dag_arg), ')'),
-      seq($.identifier, '<', commaSep(field('argument', $.value)), '>'),
+      $.anonymous_record,
       $.operator,
+    )),
+
+    sequence: $ => seq('{', $.value_list, '}'),
+
+    list_initializer: $ => seq(
+      '[',
+      optional($.value_list),
+      ']',
+      optional(seq('<', $.type, '>')),
     ),
 
-    _repeated_string: $ => repeat1($.string_string),
-
-    operator: $ => choice(
-      seq($.operator_keyword, optional(seq('<', $.type, '>')), '(', commaSep(field('argument', $.value)), optional(','), ')'),
-      seq('!cond', '(', commaSep(field('argument', seq($.value, ':', $.value))), optional(','), ')'),
+    dag_initializer: $ => seq(
+      '(',
+      $.dag_arg,
+      optional($.dag_arg_list),
+      ')',
     ),
+
+    dag_arg_list: $ => optionalOptionalCommaSep1($.dag_arg),
 
     dag_arg: $ => choice(
       seq($.value, optional(seq(':', $.var))),
       $.var,
     ),
 
-    value_suffix: $ => prec(1, choice(
-      seq('{', commaSep($.value), '}'),
-      seq('[', commaSep($.value), ']'),
-      seq('.', $.identifier),
-      seq(choice('...', '-'), $.value),
-    )),
+    anonymous_record: $ => seq($.identifier, '<', commaSep($.value), '>'),
 
-    // Not including !cond
-    operator_keyword: $ => seq(
+    concatenated_string: $ => prec.right(
+      seq($.string, repeat1($.string)),
+    ),
+
+    operator: $ => choice(
+      seq(
+        $.bang_operator,
+        optional(seq('<', $.type, '>')),
+        '(',
+        $.value_list,
+        ')',
+      ),
+      seq($.cond_operator, '(', optionalCommaSep($.cond_clause), ')'),
+    ),
+
+    cond_clause: $ => seq($.value, ':', $.value),
+
+    bang_operator: _ => seq(
       '!',
-      token.immediate(choice(
+      choice(
         'add',
         'and',
         'cast',
@@ -274,6 +329,7 @@ module.exports = grammar({
         'foldl',
         'foreach',
         'ge',
+        'getop',
         'getdagop',
         'gt',
         'head',
@@ -288,6 +344,7 @@ module.exports = grammar({
         'ne',
         'not',
         'or',
+        'setop',
         'setdagop',
         'shl',
         'size',
@@ -299,15 +356,132 @@ module.exports = grammar({
         'substr',
         'tail',
         'xor',
-      )),
+      ),
     ),
+
+    cond_operator: _ => seq('!', 'cond'),
+
+    integer: _ => {
+      const decimal = /[+-]?\d+/;
+      const hex = /0x[\da-fA-F]+/;
+      const bin = /0b[01]+/;
+      return token(choice(decimal, hex, bin));
+    },
+
+    string: $ => seq(
+      '"',
+      repeat(choice(
+        $.string_content,
+        $._escape_sequence,
+      )),
+      '"',
+    ),
+
+    // Workaround to https://github.com/tree-sitter/tree-sitter/issues/1156
+    // We give names to the token_ constructs containing a regexp
+    // so as to obtain a node in the CST.
+    //
+    string_content: _ => token.immediate(prec(1, /[^"\\]+/)),
+
+    _escape_sequence: $ => choice(
+      prec(2, token.immediate(seq('\\', /[^abfnrtvxu'\"\\\?]/))),
+      prec(1, $.escape_sequence),
+    ),
+
+    escape_sequence: _ => token.immediate(seq(
+      '\\',
+      choice(
+        /[^xu0-7]/,
+        /[0-7]{1,3}/,
+        /x[0-9a-fA-F]{2}/,
+        /u[0-9a-fA-F]{4}/,
+        /u{[0-9a-fA-F]+}/,
+        /U[0-9a-fA-F]{8}/,
+      ))),
+
+    // FIXME: Use a scanner for this
+    code: _ => /\[\{([^}]|\}+[^}\]])*\}\]/,
+
+    code_content: _ => token.immediate(prec(1, /[^\\}]+/)),
+
+    _code_escape_sequence: $ => choice(
+      prec(2, token.immediate(seq('\\', /[^tn'\"\\]/))),
+      prec(1, $.code_escape_sequence),
+    ),
+
+    code_escape_sequence: _ => token.immediate(seq(
+      '\\',
+      /[tn'\"\\]/,
+    )),
+
+    boolean: _ => choice('true', 'false'),
+
+    identifier: _ => /[0-9]*[a-zA-Z_][a-zA-Z0-9_]*/,
+
+    var: _ => /\$[a-zA-Z_][a-zA-Z0-9_]*/,
+
+    comment: _ => /\/\/[^\n\r]*/,
   },
 });
 
+/**
+ * Creates a rule to match zero or more of the rules separated by a comma
+ * optionally followed by a comma.
+ *
+ * @param {Rule} rule
+ *
+ * @return {SeqRule}
+ *
+ */
+function optionalCommaSep(rule) {
+  return seq(commaSep(rule), optional(','));
+}
+
+/**
+ * Creates a rule to match one or more of the rules separated by a comma
+ * optionally followed by a comma.
+ *
+ * @param {Rule} rule
+ *
+ * @return {SeqRule}
+ *
+ */
+function optionalCommaSep1(rule) {
+  return seq(commaSep1(rule), optional(','));
+}
+
+/**
+ * Creates a rule to match zero or more of the rules separated by a comma
+ *
+ * @param {Rule} rule
+ *
+ * @return {ChoiceRule}
+ */
 function commaSep(rule) {
   return optional(commaSep1(rule));
 }
 
+/**
+ * Creates a rule to match one or more of the rules separated by a comma
+ *
+ * @param {Rule} rule
+ *
+ * @return {SeqRule}
+ *
+ */
 function commaSep1(rule) {
   return seq(rule, repeat(seq(',', rule)));
+}
+
+/**
+ * Creates a rule to match one or more of the rules optionally separated by a comma
+ * optionally followed by a comma.
+ *
+ * @param {Rule} rule
+ *
+ * @return {SeqRule}
+ *
+ */
+function optionalOptionalCommaSep1(rule) {
+  return seq(rule, repeat(seq(optional(','), rule)), optional(','));
 }

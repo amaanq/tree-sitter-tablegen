@@ -1,90 +1,149 @@
-[
-  (comment)
-  (multiline_comment)
-] @comment
+; Preprocs
+
+(preprocessor_directive) @preproc
+
+; Includes
+
+"include" @include
+
+; Keywords
 
 [
-  "("
-  ")"
-  "["
-  "]"
-  "{"
-  "}"
-  "<"
-  ">"
-] @punctuation.bracket
-
-[
-  ","
-  ";"
-  "."
-] @punctuation.delimiter
-
-[
-  "#"
-  "-"
-  "..."
-  ":"
-] @operator
-
-[
-  "="
-  "!cond"
-  (operator_keyword)
-] @function
-
-[
-  "true"
-  "false"
-] @constant.builtin.boolean
-
-[
-  "?"
-] @constant.builtin
-
-(var) @variable
-
-(template_arg (identifier) @variable.parameter)
-
-(_ argument: (value (identifier) @variable.parameter))
-
-(type) @type
-
-"code" @type.builtin
-
-(number) @constant.numeric.integer
-[
-  (string_string)
-  (code_string)
-] @string
-
-(preprocessor) @keyword.directive
-
-[
+  "assert"
   "class"
+  "multiclass"
   "field"
   "let"
-  "defvar"
   "def"
+  "defm"
   "defset"
   "defvar"
-  "assert"
 ] @keyword
 
 [
-  "let"
   "in"
-  "foreach"
-  "if"
-  "then"
-  "else"
 ] @keyword.operator
 
-"include" @keyword.control.import
+; Conditionals
 
 [
-  "multiclass"
-  "defm"
-] @namespace
+  "if"
+  "else"
+  "then"
+] @conditional
+
+; Repeats
+
+[
+  "foreach"
+] @repeat
+
+; Variables
+
+(identifier) @variable
+
+(var) @variable.builtin ; need something more suitable, but nothing fits
+
+; Parameters
+
+(template_arg (identifier) @parameter)
+
+
+; Types
+
+(type) @type
+
+[
+  "bit"
+  "int"
+  "string"
+  "dag"
+  "bits"
+  "list"
+  "code"
+] @type.builtin
+
+(class name: (identifier) @type)
+
+(multiclass (identifier) @type)
+
+(def name: (value (_) @type))
+
+(defm name: (value (_) @type))
+
+(parent_class_list (identifier) @type (value (_) @type)?)
+
+(anonymous_record (identifier) @type)
+
+(anonymous_record (value (_) @type))
+
+((identifier) @type
+  (#lua-match? @type "^_*[A-Z][A-Z0-9_]+$"))
+
+; Fields
+
+(instruction
+  (identifier) @field)
+
+(let_instruction
+  (identifier) @field)
+
+; Functions
+
+[
+  (bang_operator)
+  (cond_operator)
+] @function
+
+; Operators
+
+[
+  "="
+  "#"
+  "-"
+  ":"
+  "..."
+] @operator
+
+; Literals
+
+(string) @string
+
+(code) @string.special
+
+(integer) @number
+
+(boolean) @boolean
+
+(uninitialized_value) @constant.builtin
+
+; Punctuation
+
+[ "{" "}" ] @punctuation.bracket
+
+[ "[" "]" ] @punctuation.bracket
+
+[ "(" ")" ] @punctuation.bracket
+
+[ "<" ">" ] @punctuation.bracket
+
+[
+  "."
+  ","
+  ";"
+] @punctuation.delimiter
+
+[
+ "!"
+] @punctuation.special
+
+; Comments
+
+[
+  (comment)
+  (multiline_comment)
+] @comment @spell
+
+; Errors
 
 (ERROR) @error
